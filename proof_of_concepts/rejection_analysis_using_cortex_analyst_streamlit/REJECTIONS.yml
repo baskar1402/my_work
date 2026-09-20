@@ -1,0 +1,253 @@
+name: IBP_REJECTIONS
+description: |-
+  Contains rejected records due to validation failures.
+  When a user asks for a product and no records are found, respond that the product is not present in the rejection table.'
+tables:
+  - name: REJECTED_RECORDS
+    description: Records that failed validation during product and location data processing.
+    base_table:
+      database: DEV
+      schema: DBT_STAGING
+      table: REJECTED_DATA_LOG
+    primary_key:
+      columns:
+        - ID
+    dimensions:
+      - name: ACTUAL_SOURCE
+        description: Original source object containing the business data before transformation and validation.
+        expr: ACTUAL_SOURCE
+        data_type: VARCHAR(16777216)
+        access_modifier: public_access
+      - name: LOCATION_ID
+        description: |-
+          Country, market, or location code associated with the product. Examples include AT01, CN02, RO02, and DE02.
+
+          If a requested location is not present in the dataset, state:
+          "No such location was found in the available data."
+        expr: RECORD_DATA:LOCID::VARCHAR
+        data_type: VARCHAR(134217728)
+        access_modifier: public_access
+      - name: MODEL_NAME
+        description: This is data build tool (dbt) model that processed the record and generated the rejection.
+        expr: MODEL_NAME
+        data_type: VARCHAR(16777216)
+        access_modifier: public_access
+      - name: PRODUCT_ID
+        description: |-
+          Business product identifier associated with the rejected record. Used to identify products affected by data quality issues.
+
+          If a requested product is not present in the dataset, state: "No such product was found in the available data."
+        expr: RECORD_DATA:PRDID::VARCHAR
+        data_type: VARCHAR(134217728)
+        access_modifier: public_access
+      - name: REJECTION_CATEGORY
+        description: High-level category used to group similar validation failures for reporting and analysis.
+        expr: |-
+          (
+                  CASE
+                      WHEN REJECT_REASON ILIKE '%location_product%'
+                          THEN 'Missing Location-Product Mapping'
+
+                      WHEN REJECT_REASON ILIKE '%WHERE clause%' AND NOT(REJECT_REASON ILIKE '%location_product%')
+                          THEN 'Business Rule Validation Failure'
+
+                      WHEN REJECT_REASON ILIKE '%lookup%'
+                          THEN 'Lookup Validation Failure'
+
+                      WHEN REJECT_REASON ILIKE '%duplicate%'
+                          THEN 'Duplicate Record'
+
+                      WHEN REJECT_REASON ILIKE '%null%'
+                          THEN 'Missing Mandatory Data'
+
+                      ELSE 'Other Validation Failure'
+                  END
+              )
+        data_type: VARCHAR(32)
+        access_modifier: public_access
+      - name: REJECTION_ID
+        description: Unique identifier for a rejection event. Each row represents one rejected record.
+        expr: ID
+        data_type: "NUMBER(38,0)"
+        access_modifier: public_access
+      - name: SOURCE_TABLE
+        description: Staging table from which the rejected record originated. Useful for identifying upstream sources of data quality issues.
+        expr: SOURCE_TABLE
+        data_type: VARCHAR(16777216)
+        access_modifier: public_access
+    facts:
+      - name: BUSINESS_RULE_VALIDATION_REJECTIONS
+        description: "Filters for rejected records where the reject reason contains 'WHERE clause' but does not contain 'location_product', identifying records that failed general business rule validation (excluding location-product mapping failures). Use when questions ask about 'business rule validation failures', 'non-location-product WHERE clause rejections', 'general rule violations', 'records failing business logic', or 'dbt business rule rejections excluding location-product'. Helps isolate data quality issues stemming from business rule conditions that are unrelated to location-product relationship problems."
+        expr: reject_reason ILIKE '%WHERE clause%' AND NOT (reject_reason ILIKE '%location_product%')
+        data_type: BOOLEAN
+        access_modifier: public_access
+        labels:
+          - filter
+      - name: DUPLICATE_RECORD_REJECTIONS
+        description: "Filters for rejected records where the reject reason contains 'duplicate', identifying records that failed validation because they represent duplicate entries. Use when questions ask about 'duplicate rejections', 'duplicate record failures', 'repeated records', 'deduplication issues', or 'records rejected for being duplicates'. Helps analyze data quality problems related to duplicate data being submitted from upstream sources."
+        expr: reject_reason ILIKE '%duplicate%'
+        data_type: BOOLEAN
+        access_modifier: public_access
+        labels:
+          - filter
+      - name: LOCATION_PRODUCT_REJECTIONS
+        description: "Filters for rejected records where the reject reason contains 'location_product', identifying records that failed validation due to location-product relationship issues. Use when questions ask about 'location product rejections', 'product location validation failures', 'rejected location-product combinations', or 'data quality issues related to location and product'. Helps analyze data quality problems specifically tied to the intersection of location and product data, such as invalid location-product pairings or missing cross-reference data."
+        expr: reject_reason ILIKE '%location_product%'
+        data_type: BOOLEAN
+        access_modifier: public_access
+        labels:
+          - filter
+      - name: LOOKUP_VALIDATION_REJECTIONS
+        description: "Filters for rejected records where the reject reason contains 'lookup', identifying records that failed validation due to lookup or reference data mismatches. Use when questions ask about 'lookup failures', 'reference data rejections', 'lookup validation issues', 'records failing lookup checks', or 'invalid reference values'. Helps analyze data quality problems where records could not be matched against expected reference or lookup tables."
+        expr: reject_reason ILIKE '%lookup%'
+        data_type: BOOLEAN
+        access_modifier: public_access
+        labels:
+          - filter
+      - name: MISSING_MANDATORY_DATA_REJECTIONS
+        description: "Filters for rejected records where the reject reason contains 'null', identifying records that failed validation due to missing mandatory data. Use when questions ask about 'missing data rejections', 'null value failures', 'mandatory field violations', 'records with missing required fields', or 'null-related validation failures'. Helps analyze data quality issues caused by absent or unpopulated required fields in the source data."
+        expr: reject_reason ILIKE '%null%'
+        data_type: BOOLEAN
+        access_modifier: public_access
+        labels:
+          - filter
+      - name: NON_LOCATION_PRODUCT_REJECTIONS
+        description: "Filters for rejected records where the reject reason does not contain 'location_product', excluding records related to location-product mapping failures. Use when questions ask about 'rejections unrelated to location-product', 'non-location-product failures', 'other validation failures', or 'rejections excluding location-product issues'. Helps narrow analysis to data quality problems that are not caused by location-product relationship issues."
+        expr: NOT (reject_reason ILIKE '%location_product%')
+        data_type: BOOLEAN
+        access_modifier: public_access
+        labels:
+          - filter
+      - name: WHERE_CLAUSE_REJECTIONS
+        description: "Filters for rejected records where the reject reason contains 'WHERE clause', identifying records that failed business rule validation conditions defined in dbt model transformations. Use when questions ask about 'business rule failures', 'WHERE clause rejections', 'records failing transformation rules', 'dbt validation failures', or 'records excluded by filter conditions'. Helps analyze records that did not satisfy the conditional logic applied during data processing."
+        expr: reject_reason ILIKE '%WHERE clause%'
+        data_type: BOOLEAN
+        access_modifier: public_access
+        labels:
+          - filter
+    metrics:
+      - name: NUMBER_OF_IMPACTED_LOCATIONS
+        description: Number of unique locations impacted by validation failures.
+        expr: COUNT(DISTINCT RECORD_DATA:LOCID::VARCHAR)
+        access_modifier: public_access
+      - name: NUMBER_OF_REJECTED_PRODUCTS
+        description: Number of unique products that have at least one rejected record.
+        expr: COUNT(DISTINCT RECORD_DATA:PRDID::VARCHAR)
+        access_modifier: public_access
+      - name: TOTAL_REJECTIONS
+        description: Total number of rejected records.
+        expr: COUNT(ID)
+        access_modifier: public_access
+      - name: UNIQUE_IMPACTED_LOCATIONS
+        description: Unique locations impacted by validation failures.
+        expr: ARRAY_AGG(DISTINCT RECORD_DATA:LOCID::VARCHAR)
+        access_modifier: public_access
+    time_dimensions:
+      - name: REJECTION_DATE
+        synonyms:
+          - decline_date
+          - denial_date
+          - dismissal_date
+          - disqualification_date
+          - exclusion_date
+          - non_acceptance_date
+          - refusal_date
+          - repudiation_date
+          - turndown_date
+          - veto_date
+        description: The date and time when the rejected data log record was created.
+        expr: CREATED_AT
+        data_type: TIMESTAMP_NTZ(9)
+        access_modifier: public_access
+module_custom_instructions:
+  question_categorization: |-
+    Can you give me the full code for dbt model? - Answer - "I dont have access to the code, please contact Data Architecture Team"
+
+    For questions which you are not able to generate response, Answer this - "Ask to contact Data Architecture Team"
+verified_queries:
+  - name: "\"Show the top 10 locations (based on location_id) with the most rejected records, including the total rejection count (COUNT(id)) and number of rejected products (COUNT(DISTINCT product_id)) for each location, ordered by total rejections descending.\""
+    sql: |-
+      SELECT
+        location_id,
+        COUNT(id) AS total_rejections,
+        COUNT(DISTINCT product_id) AS number_of_rejected_products
+      FROM
+        rejected_records
+      GROUP BY
+        location_id
+      ORDER BY
+        total_rejections DESC NULLS LAST
+      LIMIT
+        10
+        /* Generated by Cortex Analyst (request_id: 1c8834a4-0682-4a1c-b34e-142d314debf9) */
+    question: "Show the top 10 locations (based on location_id) with the most rejected records, including the total rejection count (COUNT(id)) and number of rejected products (COUNT(DISTINCT product_id)) for each location, ordered by total rejections descending."
+    verified_at: 1785511495
+    verified_by: Baskaran Nagarajan
+    use_as_onboarding_question: false
+  - name: '"How many records have been rejected in total?"'
+    sql: |-
+      SELECT
+        COUNT(rejection_id) AS total_rejections
+      FROM
+        rejected_records
+        /* Generated by Cortex Analyst (request_id: 01b2f086-397e-4b0b-97ac-9f3a2b51a0eb) */
+    question: How many records have been rejected in total?
+    verified_at: 1786703367
+    verified_by: Baskaran Nagarajan
+    use_as_onboarding_question: true
+  - name: '"What are the most common rejection categories and how many records belong to each category?"'
+    sql: |-
+      SELECT
+        rejection_category,
+        COUNT(rejection_id) AS total_rejections
+      FROM
+        rejected_records
+      GROUP BY
+        rejection_category
+      ORDER BY
+        total_rejections DESC NULLS LAST
+        /* Generated by Cortex Analyst (request_id: 8e566fe7-79cb-430e-ac3e-f1192c3e104f) */
+    question: What are the most common rejection categories and how many records belong to each category?
+    verified_at: 1786619131
+    verified_by: Baskaran Nagarajan
+    use_as_onboarding_question: true
+  - name: '"How many records have been rejected in total over the entire available time period?"'
+    sql: |-
+      SELECT
+        COUNT(id) AS total_rejections
+      FROM
+        rejected_records
+        /* Generated by Cortex Analyst (request_id: 01b2f086-397e-4b0b-97ac-9f3a2b51a0eb) */
+    question: How many records have been rejected in total over the entire available time period?
+    verified_at: 1785512890
+    verified_by: Baskaran Nagarajan
+    use_as_onboarding_question: false
+  - name: '"What are the distinct sources (actual_source) for the rejected records and how many records belong to each source?"'
+    sql: |-
+      SELECT
+        actual_source,
+        COUNT(id) AS total_rejections
+      FROM
+        rejected_records
+      GROUP BY
+        actual_source
+      ORDER BY
+        total_rejections DESC NULLS LAST
+        /* Generated by Cortex Analyst (request_id: ccaf5aec-dbdb-4748-b349-83583c813bdc) */
+    question: What are the distinct sources (actual_source) for the rejected records and how many records belong to each source?
+    verified_at: 1786700195
+    verified_by: Baskaran Nagarajan
+    use_as_onboarding_question: false
+  - name: '"Show me the total number of rejected records for location ID ''DE01''."'
+    sql: |-
+      SELECT
+        COUNT(id) AS total_rejections
+      FROM
+        rejected_records
+      WHERE
+        location_id = 'DE01'
+        /* Generated by Cortex Analyst (request_id: a52f0896-6f20-4036-803c-6086b459186d) */
+    question: Show me the total number of rejected records for location ID 'DE01'.
+    verified_at: 1786606382
+    verified_by: Baskaran Nagarajan
+    use_as_onboarding_question: false

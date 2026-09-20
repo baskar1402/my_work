@@ -1,0 +1,24 @@
+# Define pipeline stages
+stages:
+  - deploy
+
+# Global environment variables
+variables:
+  PYTHONUNBUFFERED: 1  
+
+# Job: Deploy DDLs to Snowflake
+deploy_ddls:
+  stage: deploy
+  image: python:3.10
+  script:
+    - echo "Setting up Python environment..."
+    - pip install --quiet python-dotenv snowflake-connector-python
+
+    - echo "Running Snowflake DDL deployment script..."
+    - python run_ddls.py
+
+  only:
+    refs:
+      - dev
+      - test
+      - main
